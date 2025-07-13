@@ -399,7 +399,7 @@ end
 local function AntiCheatSafeTeleport()
   while true do
     if anticheatActive == true then
-      task.wait(3)
+      task.wait(2)
       local character = player.Character
       if character then
         local HRP = character:FindFirstChild("HumanoidRootPart")
