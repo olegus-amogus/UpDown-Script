@@ -8,14 +8,23 @@ local PlayerHitbox = Instance.new("Part")
 local player = game.Players.LocalPlayer or game.Players.PlayerAdded:Wait()
 local character = player.Character or player.CharacterAdded:Wait()
 local HRP = character:WaitForChild("HumanoidRootPart")
-local GiGanticPartForScript = Instance.new("Part")
 local conditionReached = false
 local isGoingUp = false
-local GoDownButton = Instance.new("TextButton")
-local anticheatActive = false
 local teleporting = false
-local floorY = 0
-local teleportDuration = 0.1
+local teleportDuration = 0.5
+local function SmoothMove(HRP, offsetY, duration)
+	local startCFrame = HRP.CFrame
+	local endCFrame = startCFrame + Vector3.new(0, offsetY, 0)
+	local elapsed = 0
+
+	while elapsed < duration do
+		local deltaTime = RunService.Heartbeat:Wait()
+		elapsed = elapsed + deltaTime
+		local alpha = math.clamp(elapsed / duration, 0, 1)
+		HRP.CFrame = startCFrame:Lerp(endCFrame, alpha)
+	end
+	HRP.CFrame = endCFrame -- точное выставление конечной позиции
+end
 
 
 RunService.Heartbeat:Connect(function()
@@ -28,38 +37,16 @@ local function GoUp()
 	RunService.Heartbeat:Connect(function()
 		if isGoingUp then
 			if PlayerHitbox.Position.Y < 20 then
-				GiGanticPartForScript.Position = Vector3.new(PlayerHitbox.Position.X, PlayerHitbox.Position.Y - 2, PlayerHitbox.Position.Z)
+				workspace.Gravity = 0
+				SmoothMove(HRP, 20, teleportDuration)
+				task.wait(0.5)
+				workspace.Gravity = 196.2
 			else
 				isGoingUp = false
 			end
 		end
 	end)
 end
-
-local function GoDown()
-	isGoingUp = false
-	GiGanticPartForScript.Position = Vector3.new(0, -1000, 0)
-end
-
-GoDownButton.Size = UDim2.new(0, 60, 0, 30)
-GoDownButton.Position = UDim2.new(0, 100, 0, 20)
-GoDownButton.Text = "Down"
-GoDownButton.BackgroundColor3 = Color3.fromRGB(128, 187, 219)
-GoDownButton.Parent = container
-
-GiGanticPartForScript.Parent = workspace
-GiGanticPartForScript.Position = Vector3.new(0, -1000, 0)
-GiGanticPartForScript.Size = Vector3.new(1000, 1, 1000)
-GiGanticPartForScript.Name = "GiGanticPartForScript"
-GiGanticPartForScript.Anchored = true
-GiGanticPartForScript.CanCollide = true
-GiGanticPartForScript.Transparency = 1
-
-PlayerHitbox.Name = "PlayerHitBox"
-PlayerHitbox.Parent = workspace
-PlayerHitbox.CanCollide = false
-PlayerHitbox.Anchored = true
-PlayerHitbox.Transparency = 1
 
 screenGui.Enabled = true
 screenGui.Name = "MyGui"
@@ -77,7 +64,7 @@ moveArea.Text = " "
 moveArea.BackgroundColor3 = Color3.fromRGB(100, 100, 255)
 moveArea.Parent = container
 
-GoUpButton.Size = UDim2.new(0, 60, 0, 30)
+GoUpButton.Size = UDim2.new(0, 260, 0, 30)
 GoUpButton.Position = UDim2.new(0, 20, 0, 20)
 GoUpButton.Text = "UP"
 GoUpButton.BackgroundColor3 = Color3.fromRGB(229, 72, 72)
@@ -109,29 +96,18 @@ GoUpButton.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		GoUpButton.MouseButton1Click:Connect(function()
 			isGoingUp = true
-			anticheatActive = true
 		end)
 		RunService.Heartbeat:Connect(function()
 			PlayerHitbox.Position = HRP.Position
 
 			if isGoingUp then
 				if PlayerHitbox.Position.Y < 20 then
-					GiGanticPartForScript.Position = Vector3.new(PlayerHitbox.Position.X, PlayerHitbox.Position.Y - 2, PlayerHitbox.Position.Z)
+					GoUp()
 				else
 					isGoingUp = false
 				end
 			end
 		end)
-	end
-end)
-
-
-
-GoDownButton.InputBegan:Connect(function(input)
-	anticheatActive = false
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		anticheatActive = false
-		GiGanticPartForScript.Position = Vector3.new(0, -1000, 0)
 	end
 end)
 
@@ -162,60 +138,6 @@ UserInputService.InputBegan:Connect(function(input, processed)
 	if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Enum.KeyCode.F then
 		if PlayerHitbox.Position.Y < 20 then
 			GoUp()
-			anticheatActive = true
-		else
-			GoDown()
-			anticheatActive = false
 		end
 	end
 end)
-
-
-local RunService = game:GetService("RunService")
-local player = game.Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local HRP = character:WaitForChild("HumanoidRootPart")
-local GiGanticPartForScript = workspace:FindFirstChild("GiGanticPartForScript")
-local PlayerHitbox = workspace:FindFirstChild("PlayerHitBox")
-local teleporting = false
-local floorY = 0
-local teleportDuration = 0.1
-
-local RunService = game:GetService("RunService")
-
-local function SmoothMove(HRP, offsetY, duration)
-	local startCFrame = HRP.CFrame
-	local endCFrame = startCFrame + Vector3.new(0, offsetY, 0)
-	local elapsed = 0
-
-	while elapsed < duration do
-		local deltaTime = RunService.Heartbeat:Wait()
-		elapsed = elapsed + deltaTime
-		local alpha = math.clamp(elapsed / duration, 0, 1)
-		HRP.CFrame = startCFrame:Lerp(endCFrame, alpha)
-	end
-	HRP.CFrame = endCFrame -- точное выставление конечной позиции
-end
-
-local function AntiCheatSafeTeleport()
-	while true do
-		if anticheatActive == true then
-			task.wait(3)
-			local character = player.Character
-			if character then
-				local HRP = character:FindFirstChild("HumanoidRootPart")
-				if HRP then
-					GiGanticPartForScript.CanCollide = false
-					SmoothMove(HRP, -35, 0.5)  
-					task.wait(0.3)            
-					SmoothMove(HRP, 400, 0.5)
-					GiGanticPartForScript.CanCollide = true
-				end
-			end
-		else
-			task.wait(0.1)
-		end
-	end
-end
-
-coroutine.wrap(AntiCheatSafeTeleport)()
