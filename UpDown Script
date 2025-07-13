@@ -181,19 +181,37 @@ local teleporting = false
 local floorY = 0
 local teleportDuration = 0.1
 
+local RunService = game:GetService("RunService")
+
+local function SmoothMove(HRP, offsetY, duration)
+	local startCFrame = HRP.CFrame
+	local endCFrame = startCFrame + Vector3.new(0, offsetY, 0)
+	local elapsed = 0
+
+	while elapsed < duration do
+		local deltaTime = RunService.Heartbeat:Wait()
+		elapsed = elapsed + deltaTime
+		local alpha = math.clamp(elapsed / duration, 0, 1)
+		HRP.CFrame = startCFrame:Lerp(endCFrame, alpha)
+	end
+	HRP.CFrame = endCFrame
+end
+
 local function AntiCheatSafeTeleport()
 	while true do
 		if anticheatActive == true then
 			task.wait(5)
-			local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
-			local HRP = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-			if humanoid and HRP then
-				HRP.CFrame = HRP.CFrame - Vector3.new(0, 20, 0)
-				task.wait(0.3)
-				HRP.CFrame = HRP.CFrame + Vector3.new(0, 20, 0)
+			local character = player.Character
+			if character then
+				local HRP = character:FindFirstChild("HumanoidRootPart")
+				if HRP then
+					SmoothMove(HRP, -20, 0.5)
+					task.wait(0.1)           
+					SmoothMove(HRP, 20, 0.5)
+				end
 			end
 		else
-			task.wait(1) -- Чтобы не грузить цикл
+			task.wait(1)
 		end
 	end
 end
