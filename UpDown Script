@@ -208,7 +208,7 @@ local function AntiCheatSafeTeleport()
 					GiGanticPartForScript.CanCollide = false
 					SmoothMove(HRP, -35, 0.5)  
 					task.wait(0.1)            
-					SmoothMove(HRP, 35, 0.5)
+					SmoothMove(HRP, 40, 0.5)
 					GiGanticPartForScript.CanCollide = true
 				end
 			end
