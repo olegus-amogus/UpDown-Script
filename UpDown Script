@@ -12,6 +12,12 @@ local GiGanticPartForScript = Instance.new("Part")
 local conditionReached = false
 local isGoingUp = false
 local GoDownButton = Instance.new("TextButton")
+local anticheatActive = false
+local teleporting = false
+local floorY = 0
+local teleportDuration = 0.1
+
+
 RunService.Heartbeat:Connect(function()
 	PlayerHitbox.Position = HRP.Position
 end)
@@ -53,8 +59,9 @@ PlayerHitbox.Name = "PlayerHitBox"
 PlayerHitbox.Parent = workspace
 PlayerHitbox.CanCollide = false
 PlayerHitbox.Anchored = true
-screenGui.Enabled = true
+PlayerHitbox.Transparency = 1
 
+screenGui.Enabled = true
 screenGui.Name = "MyGui"
 screenGui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
 
@@ -102,11 +109,7 @@ GoUpButton.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		GoUpButton.MouseButton1Click:Connect(function()
 			isGoingUp = true
-		end)
-
-		GoDownButton.MouseButton1Click:Connect(function()
-			isGoingUp = false -- Останавливаем подъем
-			GiGanticPartForScript.Position = Vector3.new(0, -1000, 0)
+			anticheatActive = true
 		end)
 		RunService.Heartbeat:Connect(function()
 			PlayerHitbox.Position = HRP.Position
@@ -125,7 +128,9 @@ end)
 
 
 GoDownButton.InputBegan:Connect(function(input)
+	anticheatActive = false
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		anticheatActive = false
 		GiGanticPartForScript.Position = Vector3.new(0, -1000, 0)
 	end
 end)
@@ -155,13 +160,42 @@ UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then return end
 
 	if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Enum.KeyCode.F then
-		-- Проверяем положение игрока по оси Y
 		if PlayerHitbox.Position.Y < 20 then
-			-- Игрок сверху — выполняем функцию подъема
 			GoUp()
+			anticheatActive = true
 		else
-			-- Игрок снизу — выполняем функцию спуска
 			GoDown()
+			anticheatActive = false
 		end
 	end
 end)
+
+
+local RunService = game:GetService("RunService")
+local player = game.Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local HRP = character:WaitForChild("HumanoidRootPart")
+local GiGanticPartForScript = workspace:FindFirstChild("GiGanticPartForScript")
+local PlayerHitbox = workspace:FindFirstChild("PlayerHitBox")
+local teleporting = false
+local floorY = 0
+local teleportDuration = 0.1
+
+local function AntiCheatSafeTeleport()
+	while true do
+		if anticheatActive == true then
+			task.wait(5)
+			local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+			local HRP = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+			if humanoid and HRP then
+				HRP.CFrame = HRP.CFrame - Vector3.new(0, 20, 0)
+				task.wait(0.3)
+				HRP.CFrame = HRP.CFrame + Vector3.new(0, 20, 0)
+			end
+		else
+			task.wait(1) -- Чтобы не грузить цикл
+		end
+	end
+end
+
+coroutine.wrap(AntiCheatSafeTeleport)()
