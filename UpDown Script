@@ -206,9 +206,9 @@ local function AntiCheatSafeTeleport()
 				local HRP = character:FindFirstChild("HumanoidRootPart")
 				if HRP then
 					GiGanticPartForScript.CanCollide = false
-					SmoothMove(HRP, -20, 0.5)  
+					SmoothMove(HRP, -40, 0.5)  
 					task.wait(0.1)            
-					SmoothMove(HRP, 25, 0.5)
+					SmoothMove(HRP, 40, 0.5)
 					GiGanticPartForScript.CanCollide = true
 				end
 			end
