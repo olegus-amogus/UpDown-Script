@@ -1,11 +1,10 @@
-
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local player = Players.LocalPlayer
 
-local RISE_DISTANCE = 30        -- на сколько studs поднять (изменено на 30)
-local RISE_DURATION = 1.5       -- длительность подъёма в секундах
-local EASE_FUNC = function(t)    -- сглаживание (ease in-out cubic)
+local RISE_DISTANCE = 30
+local RISE_DURATION = 1.5
+local EASE_FUNC = function(t)
     if t < 0.5 then
         return 4 * t * t * t
     else
@@ -13,6 +12,8 @@ local EASE_FUNC = function(t)    -- сглаживание (ease in-out cubic)
         return 0.5 * f * f * f + 1
     end
 end
+
+-- GUI (как у вас)
 
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "RiseGui"
@@ -35,7 +36,7 @@ uiCorner.Parent = frame
 local button = Instance.new("TextButton")
 button.Name = "RiseButton"
 button.Size = UDim2.new(0, 200, 0, 48)
-button.Position = UDim2.new(0.5, 0, 0.5, -12)
+button.Position = UDim2.new(0.5, -100, 0.5, -12)
 button.AnchorPoint = Vector2.new(0.5, 0.5)
 button.BackgroundColor3 = Color3.fromRGB(70, 130, 240)
 button.TextColor3 = Color3.new(1,1,1)
@@ -48,7 +49,7 @@ local btnCorner = Instance.new("UICorner")
 btnCorner.CornerRadius = UDim.new(0, 6)
 btnCorner.Parent = button
 
-
+-- Подъём с VectorForce
 
 local isRising = false
 local function riseWithAntiGravity(dist, duration)
@@ -64,7 +65,6 @@ local function riseWithAntiGravity(dist, duration)
 
     isRising = true
 
-    
     local attachment = Instance.new("Attachment")
     attachment.Name = "RiseAttachment"
     attachment.Parent = hrp
@@ -101,7 +101,7 @@ local function riseWithAntiGravity(dist, duration)
 
         elapsed = math.min(elapsed + dt, duration)
         local t = elapsed / duration
-        local alpha = EASE_FUNC(t)
+        localalpha = EASE_FUNC(t)
         local targetY = startY + dist * alpha
 
         local alpha_prev = EASE_FUNC(math.max(0, (elapsed - dt) / duration))
@@ -118,25 +118,28 @@ local function riseWithAntiGravity(dist, duration)
 
         prevY = hrp.Position.Y
 
+        -- окончание подъёма
         if elapsed >= duration then
+            -- плавно сбрасываем силу (чтобы не дергать тело резко)
+            local fadeTime = 0.15
+            local fadeElapsed = 0
             conn:Disconnect()
-            if vectorForce and vectorForce.Parent then vectorForce:Destroy() end
-            if attachment and attachment.Parent then attachment:Destroy() end
-            isRising = false
+            local fadeConn
+            fadeConn = RunService.RenderStepped:Connect(function(dt2)
+                fadeElapsed = math.min(fadeElapsed + dt2, fadeTime)
+                local f = 1 - (fadeElapsed / fadeTime)
+                vectorForce.Force = Vector3.new(0, forceY * f, 0)
+                if fadeElapsed >= fadeTime then
+                    fadeConn:Disconnect()
+                    if vectorForce and vectorForce.Parent then vectorForce:Destroy() end
+                    if attachment and attachment.Parent then attachment:Destroy() end
+                    isRising = false
+                end
+            end)
         end
     end)
 end
 
 button.MouseButton1Click:Connect(function()
-    player = Players.LocalPlayer
-    local character = player.Character or player.CharacterAdded:Wait()
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-
-    local humanoid = character:FindFirstChildWhichIsA("Humanoid")
-    if not hrp or not humanoid then
-        warn("Нет Humanoid или HumanoidRootPart")
-        return
-    end
-
     riseWithAntiGravity(RISE_DISTANCE, RISE_DURATION)
 end)
