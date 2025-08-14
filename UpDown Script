@@ -1,194 +1,127 @@
 
-local Players = game:GetService("Players")
+
+-- LocalScript
+
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local player = Players.LocalPlayer
 
-local RISE_DISTANCE = 30
-local RISE_DURATION = 1.5
-local EASE_FUNC = function(t)
-    if t < 0.5 then
-        return 4 * t * t * t
+-- Поменяйте при необходимости: если скрипт не внутри фрейма, укажите путь
+
+local frame = script.Parent
+assert(frame and frame:IsA("GuiObject"), "Script must be child of a GuiObject (Frame/etc)")
+
+-- Опции
+
+local dragHandle = frame           -- элемент по которому тащим; можно сделать frame:WaitForChild("Title") и т.д.
+local stayInsideParent = true      -- если true, ограничиваем чтобы фрейм не выходил за родителя
+local smoothing = false            -- если true, позиция будет плавно интерполироваться к цели (необязательно)
+
+-- Внутние переменные
+
+local dragging = false
+local dragStartPos = Vector2.new()
+local guiStartAbsPos = Vector2.new()
+local lastInput = nil
+local targetAbsPos = nil
+
+-- Вспомогательные функции
+
+local function toAbsPositionFromUDim2(ud)
+    -- переводит UDim2 в абсолютную позицию верхнего левого угла с учётом AnchorPoint
+    local parent = frame.Parent
+    local parentSize = parent and parent.AbsoluteSize or Vector2.new()
+    -- если в позиции есть Scale, учитываем его
+    local x = ud.X.Scale * parentSize.X + ud.X.Offset
+    local y = ud.Y.Scale * parentSize.Y + ud.Y.Offset
+    -- AbsolutePosition учитывает AnchorPoint, но здесь позиция в UDim2 задаёт координату верхнего левого с учётом AnchorPoint,
+    -- поэтому надо вычесть AnchorPoint * frame.AbsoluteSize чтобы получить верхний-левый угол.
+    local anchorOffset = Vector2.new(frame.AnchorPoint.X * frame.AbsoluteSize.X, frame.AnchorPoint.Y * frame.AbsoluteSize.Y)
+    return Vector2.new(x, y) - anchorOffset
+end
+
+local function toUDim2FromAbsPosition(absPos)
+    -- переводит абсолютную верхнюю-левую позицию в UDim2 (сохранит Scale = 0, можно изменить при необходимости)
+    local parent = frame.Parent
+    local parentSize = parent and parent.AbsoluteSize or Vector2.new()
+    local xOffset = absPos.X
+    local yOffset = absPos.Y
+    -- учитываем AnchorPoint: UDim2 позиция задаёт точку AnchorPoint, значит нужно прибавить AnchorPoint*frameSize
+    local anchorAdd = Vector2.new(frame.AnchorPoint.X * frame.AbsoluteSize.X, frame.AnchorPoint.Y * frame.AbsoluteSize.Y)
+    local udX = (0) -- Scale = 0
+    local udY = (0)
+    return UDim2.new(udX, xOffset + anchorAdd.X, udY, yOffset + anchorAdd.Y)
+end
+
+local function clampToParent(absPos)
+    if not stayInsideParent then return absPos end
+    local parent = frame.Parent
+    if not parent then return absPos end
+    local pSize = parent.AbsoluteSize
+    local fSize = frame.AbsoluteSize
+    local minX, minY = 0, 0
+    local maxX, maxY = math.max(0, pSize.X - fSize.X), math.max(0, pSize.Y - fSize.Y)
+    local clampedX = math.clamp(absPos.X, minX, maxX)
+    local clampedY = math.clamp(absPos.Y, minY, maxY)
+    return Vector2.new(clampedX, clampedY)
+end
+
+-- Обработка ввода
+
+dragHandle.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        lastInput = input
+        dragStartPos = input.Position
+        -- используем AbsolutePosition верхнего-левого угла как стартовую точку
+        guiStartAbsPos = frame.AbsolutePosition
+        targetAbsPos = guiStartAbsPos
+        -- отслеживаем конец на данном input (если input исчезнет)
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+dragHandle.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        lastInput = input
+    end
+end)
+
+-- Реагируем на изменение размеров родителя/фрейма чтобы поддерживать корректные AbsoluteSize/Position
+
+local function updateFramePositionFromTarget()
+    if not targetAbsPos then return end
+    -- clamp заново с текущими размерами
+    local clamped = clampToParent(targetAbsPos)
+    local newUD = toUDim2FromAbsPosition(clamped)
+    frame.Position = newUD
+end
+
+-- Рендер/обновление каждый фрейм
+
+RunService.RenderStepped:Connect(function()
+    if not dragging or not lastInput then return end
+    local delta = lastInput.Position - dragStartPos
+    targetAbsPos = guiStartAbsPos + delta
+    targetAbsPos = clampToParent(targetAbsPos)
+    if smoothing then
+        -- плавная интерполяция (необязательно)
+        local currentAbs = frame.AbsolutePosition
+        local lerped = currentAbs:Lerp(targetAbsPos, 0.25) -- скорость можно менять
+        frame.Position = toUDim2FromAbsPosition(lerped)
     else
-        local f = (2 * t - 2)
-        return 0.5 * f * f * f + 1
+        frame.Position = toUDim2FromAbsPosition(targetAbsPos)
     end
-end
+end)
 
--- GUI
+-- При ресайзе родителя корректируем позицию, чтобы остаться в пределах (если нужно)
 
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "RiseGui"
-screenGui.ResetOnSpawn = false
-screenGui.Parent = player:WaitForChild("PlayerGui")
-
-local frame = Instance.new("Frame")
-frame.Name = "MainFrame"
-frame.Size = UDim2.new(0, 220, 0, 80)
-frame.Position = UDim2.new(0.5, -110, 0.85, 0)
-frame.AnchorPoint = Vector2.new(0.5, 0.5)
-frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-frame.BackgroundTransparency = 0.05
-frame.Parent = screenGui
-
-local uiCorner = Instance.new("UICorner")
-uiCorner.CornerRadius = UDim.new(0, 8)
-uiCorner.Parent = frame
-
-local button = Instance.new("TextButton")
-button.Name = "RiseButton"
-button.Size = UDim2.new(0, 200, 0, 48)
-button.Position = UDim2.new(0.5, 0, 0.5, -12)
-button.AnchorPoint = Vector2.new(0.5, 0.5)
-button.BackgroundColor3 = Color3.fromRGB(70, 130, 240)
-button.TextColor3 = Color3.new(1,1,1)
-button.Font = Enum.Font.SourceSansBold
-button.TextSize = 20
-button.Text = "Rise Up"
-button.Parent = frame
-
-local btnCorner = Instance.new("UICorner")
-btnCorner.CornerRadius = UDim.new(0, 6)
-btnCorner.Parent = button
-
--- Перетаскивание за frame (с ограничением в пределах экрана)
-
-do
-    local dragging = false
-    local dragStart = Vector2.new()
-    local startPos = UDim2.new()
-    local lastInput
-
-    local function clampPosition(pos, size)
-        local absSize = frame.Parent.AbsoluteSize
-        local x = math.clamp(pos.X.Offset, 0, absSize.X - size.X.Offset)
-        local y = math.clamp(pos.Y.Offset, 0, absSize.Y - size.Y.Offset)
-        -- сохраняем Scale часть (обычно 0.5) и пересчитываем Offset
-        return UDim2.new(pos.X.Scale, x, pos.Y.Scale, y)
-    end
-
-    frame.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            dragStart = input.Position
-            startPos = frame.Position
-            lastInput = input
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
-            end)
-        end
-    end)
-
-    frame.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-            lastInput = input
-        end
-    end)
-
-    RunService.RenderStepped:Connect(function()
-        if dragging and lastInput then
-            local delta = lastInput.Position - dragStart
-            local parentSize = frame.Parent.AbsoluteSize
-            local newXOffset = startPos.X.Offset + delta.X
-            local newYOffset = startPos.Y.Offset + delta.Y
-            -- вычисляем позицию и ограничиваем
-            local candidate = UDim2.new(startPos.X.Scale, newXOffset, startPos.Y.Scale, newYOffset)
-            frame.Position = clampPosition(candidate, frame.Size)
-        end
-    end)
-end
-
--- Подъём через VectorForce/Attachment
-
-local isRising = false
-local function riseWithAntiGravity(dist, duration)
-    if isRising then return end
-    local character = player.Character or player.CharacterAdded:Wait()
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    local humanoid = character:FindFirstChildWhichIsA("Humanoid")
-    if not hrp or not humanoid then
-        warn("Нет Humanoid или HumanoidRootPart")
-        return
-    end
-
-    isRising = true
-
-    local attachment = Instance.new("Attachment")
-    attachment.Name = "RiseAttachment"
-    attachment.Parent = hrp
-
-    local vectorForce = Instance.new("VectorForce")
-    vectorForce.Name = "RiseForce"
-    vectorForce.Attachment0 = attachment
-    vectorForce.RelativeTo = Enum.ActuatorRelativeTo.World
-    vectorForce.ApplyAtCenterOfMass = true
-    vectorForce.Parent = hrp
-
-    local mass = 0
-    for _, part in ipairs(character:GetDescendants()) do
-        if part:IsA("BasePart") then
-            mass = mass + part:GetMass()
-        end
-    end
-    if mass <= 0 then mass = 1 end
-
-    local gravity = workspace.Gravity
-    local startY = hrp.Position.Y
-    local elapsed = 0
-    local prevY = hrp.Position.Y
-
-    local conn
-    conn = RunService.RenderStepped:Connect(function(dt)
-        if not hrp or not hrp.Parent then
-            conn:Disconnect()
-            if vectorForce and vectorForce.Parent then vectorForce:Destroy() end
-            if attachment and attachment.Parent then attachment:Destroy() end
-            isRising = false
-            return
-        end
-
-        elapsed = math.min(elapsed + dt, duration)
-        local t = elapsed / duration
-        local alpha = EASE_FUNC(t)
-
-        local alpha_prev = EASE_FUNC(math.max(0, (elapsed - dt) / duration))
-        local v_target = (alpha - alpha_prev) * dist / math.max(dt, 1e-6)
-
-        local currentV = (hrp.Position.Y - prevY) / math.max(dt, 1e-6)
-
-        local kP = 40
-        local accel_req = kP * (v_target - currentV)
-
-        local forceY = mass * (accel_req + gravity)
-
-        vectorForce.Force = Vector3.new(0, forceY, 0)
-
-        prevY = hrp.Position.Y
-
-        if elapsed >= duration then
-            conn:Disconnect()
-            -- плавное уменьшение силы
-            local fadeTime = 0.15
-            local fadeElapsed = 0
-            local initialForceY = forceY
-            local fadeConn
-            fadeConn = RunService.RenderStepped:Connect(function(dt2)
-                fadeElapsed = math.min(fadeElapsed + dt2, fadeTime)
-                local f = 1 - (fadeElapsed / fadeTime)
-                vectorForce.Force = Vector3.new(0, initialForceY * f, 0)
-                if fadeElapsed >= fadeTime then
-                    fadeConn:Disconnect()
-                    if vectorForce and vectorForce.Parent then vectorForce:Destroy() end
-                    if attachment and attachment.Parent then attachment:Destroy() end
-                    isRising = false
-                end
-            end)
-        end
-    end)
-end
-
-button.MouseButton1Click:Connect(function()
-    riseWithAntiGravity(RISE_DISTANCE, RISE_DURATION)
+frame.Parent:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+    updateFramePositionFromTarget()
+end)
+frame:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+    updateFramePositionFromTarget()
 end)
