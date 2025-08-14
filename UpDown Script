@@ -1,18 +1,12 @@
 
-
--- Скрипт подъёма с GUI — 1-й способ: даём противосилу к гравитации (VectorForce/Attachment)
--- Поместить как LocalScript в StarterPlayerScripts
--- Изменено: поднимается на 30 studs
-
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 local player = Players.LocalPlayer
 
--- Параметры подъёма
-
-local RISE_DISTANCE = 30        -- на сколько studs поднять (изменено на 30)
-local RISE_DURATION = 1.5       -- длительность подъёма в секундах
-local EASE_FUNC = function(t)    -- сглаживание (ease in-out cubic)
+local RISE_DISTANCE = 30
+local RISE_DURATION = 1.5
+local EASE_FUNC = function(t)
     if t < 0.5 then
         return 4 * t * t * t
     else
@@ -21,7 +15,7 @@ local EASE_FUNC = function(t)    -- сглаживание (ease in-out cubic)
     end
 end
 
--- Создаём GUI
+-- GUI
 
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "RiseGui"
@@ -57,12 +51,60 @@ local btnCorner = Instance.new("UICorner")
 btnCorner.CornerRadius = UDim.new(0, 6)
 btnCorner.Parent = button
 
--- Функция подъёма через противосилу
+-- Перетаскивание за frame (с ограничением в пределах экрана)
+
+do
+    local dragging = false
+    local dragStart = Vector2.new()
+    local startPos = UDim2.new()
+    local lastInput
+
+    local function clampPosition(pos, size)
+        local absSize = frame.Parent.AbsoluteSize
+        local x = math.clamp(pos.X.Offset, 0, absSize.X - size.X.Offset)
+        local y = math.clamp(pos.Y.Offset, 0, absSize.Y - size.Y.Offset)
+        -- сохраняем Scale часть (обычно 0.5) и пересчитываем Offset
+        return UDim2.new(pos.X.Scale, x, pos.Y.Scale, y)
+    end
+
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+            lastInput = input
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    frame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            lastInput = input
+        end
+    end)
+
+    RunService.RenderStepped:Connect(function()
+        if dragging and lastInput then
+            local delta = lastInput.Position - dragStart
+            local parentSize = frame.Parent.AbsoluteSize
+            local newXOffset = startPos.X.Offset + delta.X
+            local newYOffset = startPos.Y.Offset + delta.Y
+            -- вычисляем позицию и ограничиваем
+            local candidate = UDim2.new(startPos.X.Scale, newXOffset, startPos.Y.Scale, newYOffset)
+            frame.Position = clampPosition(candidate, frame.Size)
+        end
+    end)
+end
+
+-- Подъём через VectorForce/Attachment
 
 local isRising = false
 local function riseWithAntiGravity(dist, duration)
     if isRising then return end
-
     local character = player.Character or player.CharacterAdded:Wait()
     local hrp = character:FindFirstChild("HumanoidRootPart")
     local humanoid = character:FindFirstChildWhichIsA("Humanoid")
@@ -73,7 +115,6 @@ local function riseWithAntiGravity(dist, duration)
 
     isRising = true
 
-    -- Создаём Attachment и VectorForce
     local attachment = Instance.new("Attachment")
     attachment.Name = "RiseAttachment"
     attachment.Parent = hrp
@@ -85,7 +126,6 @@ local function riseWithAntiGravity(dist, duration)
     vectorForce.ApplyAtCenterOfMass = true
     vectorForce.Parent = hrp
 
-    -- Суммарная масса модели
     local mass = 0
     for _, part in ipairs(character:GetDescendants()) do
         if part:IsA("BasePart") then
@@ -112,7 +152,6 @@ local function riseWithAntiGravity(dist, duration)
         elapsed = math.min(elapsed + dt, duration)
         local t = elapsed / duration
         local alpha = EASE_FUNC(t)
-        local targetY = startY + dist * alpha
 
         local alpha_prev = EASE_FUNC(math.max(0, (elapsed - dt) / duration))
         local v_target = (alpha - alpha_prev) * dist / math.max(dt, 1e-6)
@@ -130,23 +169,26 @@ local function riseWithAntiGravity(dist, duration)
 
         if elapsed >= duration then
             conn:Disconnect()
-            if vectorForce and vectorForce.Parent then vectorForce:Destroy() end
-            if attachment and attachment.Parent then attachment:Destroy() end
-            isRising = false
+            -- плавное уменьшение силы
+            local fadeTime = 0.15
+            local fadeElapsed = 0
+            local initialForceY = forceY
+            local fadeConn
+            fadeConn = RunService.RenderStepped:Connect(function(dt2)
+                fadeElapsed = math.min(fadeElapsed + dt2, fadeTime)
+                local f = 1 - (fadeElapsed / fadeTime)
+                vectorForce.Force = Vector3.new(0, initialForceY * f, 0)
+                if fadeElapsed >= fadeTime then
+                    fadeConn:Disconnect()
+                    if vectorForce and vectorForce.Parent then vectorForce:Destroy() end
+                    if attachment and attachment.Parent then attachment:Destroy() end
+                    isRising = false
+                end
+            end)
         end
     end)
 end
 
 button.MouseButton1Click:Connect(function()
-    player = Players.LocalPlayer
-    local character = player.Character or player.CharacterAdded:Wait()
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-
-    local humanoid = character:FindFirstChildWhichIsA("Humanoid")
-    if not hrp or not humanoid then
-        warn("Нет Humanoid или HumanoidRootPart")
-        return
-    end
-
     riseWithAntiGravity(RISE_DISTANCE, RISE_DURATION)
 end)
