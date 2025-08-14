@@ -1,143 +1,142 @@
-local UserInputService = game:GetService("UserInputService")
+
+local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local player = Players.LocalPlayer
+
+local RISE_DISTANCE = 30        -- на сколько studs поднять (изменено на 30)
+local RISE_DURATION = 1.5       -- длительность подъёма в секундах
+local EASE_FUNC = function(t)    -- сглаживание (ease in-out cubic)
+    if t < 0.5 then
+        return 4 * t * t * t
+    else
+        local f = (2 * t - 2)
+        return 0.5 * f * f * f + 1
+    end
+end
+
 local screenGui = Instance.new("ScreenGui")
-local container = Instance.new("Frame")
-local moveArea = Instance.new("TextButton")
-local GoUpButton = Instance.new("TextButton")
-local PlayerHitbox = Instance.new("Part")
-local player = game.Players.LocalPlayer or game.Players.PlayerAdded:Wait()
-local character = player.Character or player.CharacterAdded:Wait()
-local HRP = character:WaitForChild("HumanoidRootPart")
-local conditionReached = false
-local isGoingUp = false
-local teleporting = false
-local teleportDuration = 0.5
-local function SmoothMove(HRP, offsetY, duration)
-	local startCFrame = HRP.CFrame
-	local endCFrame = startCFrame + Vector3.new(0, offsetY, 0)
-	local elapsed = 0
+screenGui.Name = "RiseGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = player:WaitForChild("PlayerGui")
 
-	while elapsed < duration do
-		local deltaTime = RunService.Heartbeat:Wait()
-		elapsed = elapsed + deltaTime
-		local alpha = math.clamp(elapsed / duration, 0, 1)
-		HRP.CFrame = startCFrame:Lerp(endCFrame, alpha)
-	end
-	HRP.CFrame = endCFrame -- точное выставление конечной позиции
+local frame = Instance.new("Frame")
+frame.Name = "MainFrame"
+frame.Size = UDim2.new(0, 220, 0, 80)
+frame.Position = UDim2.new(0.5, -110, 0.85, 0)
+frame.AnchorPoint = Vector2.new(0.5, 0.5)
+frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+frame.BackgroundTransparency = 0.05
+frame.Parent = screenGui
+
+local uiCorner = Instance.new("UICorner")
+uiCorner.CornerRadius = UDim.new(0, 8)
+uiCorner.Parent = frame
+
+local button = Instance.new("TextButton")
+button.Name = "RiseButton"
+button.Size = UDim2.new(0, 200, 0, 48)
+button.Position = UDim2.new(0.5, -100, 0.5, -12)
+button.AnchorPoint = Vector2.new(0.5, 0.5)
+button.BackgroundColor3 = Color3.fromRGB(70, 130, 240)
+button.TextColor3 = Color3.new(1,1,1)
+button.Font = Enum.Font.SourceSansBold
+button.TextSize = 20
+button.Text = "Rise Up"
+button.Parent = frame
+
+local btnCorner = Instance.new("UICorner")
+btnCorner.CornerRadius = UDim.new(0, 6)
+btnCorner.Parent = button
+
+
+
+local isRising = false
+local function riseWithAntiGravity(dist, duration)
+    if isRising then return end
+
+    local character = player.Character or player.CharacterAdded:Wait()
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character:FindFirstChildWhichIsA("Humanoid")
+    if not hrp or not humanoid then
+        warn("Нет Humanoid или HumanoidRootPart")
+        return
+    end
+
+    isRising = true
+
+    
+    local attachment = Instance.new("Attachment")
+    attachment.Name = "RiseAttachment"
+    attachment.Parent = hrp
+
+    local vectorForce = Instance.new("VectorForce")
+    vectorForce.Name = "RiseForce"
+    vectorForce.Attachment0 = attachment
+    vectorForce.RelativeTo = Enum.ActuatorRelativeTo.World
+    vectorForce.ApplyAtCenterOfMass = true
+    vectorForce.Parent = hrp
+
+    local mass = 0
+    for _, part in ipairs(character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            mass = mass + part:GetMass()
+        end
+    end
+    if mass <= 0 then mass = 1 end
+
+    local gravity = workspace.Gravity
+    local startY = hrp.Position.Y
+    local elapsed = 0
+    local prevY = hrp.Position.Y
+
+    local conn
+    conn = RunService.RenderStepped:Connect(function(dt)
+        if not hrp or not hrp.Parent then
+            conn:Disconnect()
+            if vectorForce and vectorForce.Parent then vectorForce:Destroy() end
+            if attachment and attachment.Parent then attachment:Destroy() end
+            isRising = false
+            return
+        end
+
+        elapsed = math.min(elapsed + dt, duration)
+        local t = elapsed / duration
+        local alpha = EASE_FUNC(t)
+        local targetY = startY + dist * alpha
+
+        local alpha_prev = EASE_FUNC(math.max(0, (elapsed - dt) / duration))
+        local v_target = (alpha - alpha_prev) * dist / math.max(dt, 1e-6)
+
+        local currentV = (hrp.Position.Y - prevY) / math.max(dt, 1e-6)
+
+        local kP = 40
+        local accel_req = kP * (v_target - currentV)
+
+        local forceY = mass * (accel_req + gravity)
+
+        vectorForce.Force = Vector3.new(0, forceY, 0)
+
+        prevY = hrp.Position.Y
+
+        if elapsed >= duration then
+            conn:Disconnect()
+            if vectorForce and vectorForce.Parent then vectorForce:Destroy() end
+            if attachment and attachment.Parent then attachment:Destroy() end
+            isRising = false
+        end
+    end)
 end
 
+button.MouseButton1Click:Connect(function()
+    player = Players.LocalPlayer
+    local character = player.Character or player.CharacterAdded:Wait()
+    local hrp = character:FindFirstChild("HumanoidRootPart")
 
-RunService.Heartbeat:Connect(function()
-	PlayerHitbox.Position = HRP.Position
-end)
-local position_now = PlayerHitbox.Position
+    local humanoid = character:FindFirstChildWhichIsA("Humanoid")
+    if not hrp or not humanoid then
+        warn("Нет Humanoid или HumanoidRootPart")
+        return
+    end
 
-local function GoUp()
-	isGoingUp = true
-	RunService.Heartbeat:Connect(function()
-		if isGoingUp then
-			if PlayerHitbox.Position.Y < 20 then
-				workspace.Gravity = 0
-				SmoothMove(HRP, 20, teleportDuration)
-				task.wait(0.5)
-				workspace.Gravity = 196.2
-			else
-				isGoingUp = false
-			end
-		end
-	end)
-end
-
-screenGui.Enabled = true
-screenGui.Name = "MyGui"
-screenGui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
-
-container.Size = UDim2.new(0, 300, 0, 400)
-container.Position = UDim2.new(0.5, -150, 0.5, 0)
-container.AnchorPoint = Vector2.new(0.5, 0.5)
-container.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
-container.Parent = screenGui
-
-moveArea.Size = UDim2.new(0, 300, 0, 30)
-moveArea.Position = UDim2.new(0, 0, 0, 400)
-moveArea.Text = " "
-moveArea.BackgroundColor3 = Color3.fromRGB(100, 100, 255)
-moveArea.Parent = container
-
-GoUpButton.Size = UDim2.new(0, 260, 0, 30)
-GoUpButton.Position = UDim2.new(0, 20, 0, 20)
-GoUpButton.Text = "UP"
-GoUpButton.BackgroundColor3 = Color3.fromRGB(229, 72, 72)
-GoUpButton.Parent = container
-
-local buttonArea = Instance.new("Frame")
-buttonArea.Size = UDim2.new(1, 0, 1, -30)
-buttonArea.Position = UDim2.new(0, 0, 0, 30)
-buttonArea.BackgroundTransparency = 1
-buttonArea.Parent = container
-
-local dragging = false
-local dragStart, startPos
-
-moveArea.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		dragging = true
-		dragStart = input.Position
-		startPos = container.Position
-		input.Changed:Connect(function()
-			if input.UserInputState == Enum.UserInputState.End then
-				dragging = false
-			end
-		end)
-	end
-end)
-
-GoUpButton.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		GoUpButton.MouseButton1Click:Connect(function()
-			isGoingUp = true
-		end)
-		RunService.Heartbeat:Connect(function()
-			PlayerHitbox.Position = HRP.Position
-
-			if isGoingUp then
-				if PlayerHitbox.Position.Y < 20 then
-					GoUp()
-				else
-					isGoingUp = false
-				end
-			end
-		end)
-	end
-end)
-
-moveArea.InputChanged:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseMovement and dragging then
-		local delta = input.Position - dragStart
-		container.Position = startPos + UDim2.new(0, delta.X, 0, delta.Y)
-	end
-end)
-
-local UserInputService = game:GetService("UserInputService")
-
-UserInputService.InputBegan:Connect(function(input)
-	if input.KeyCode == Enum.KeyCode.U then
-		if screenGui.Enabled == true then
-			screenGui.Enabled = false
-			wait(0.1)
-		else
-			screenGui.Enabled = true
-			wait(0.1)
-		end
-	end
-end)
-
-UserInputService.InputBegan:Connect(function(input, processed)
-	if processed then return end
-
-	if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Enum.KeyCode.F then
-		if PlayerHitbox.Position.Y < 20 then
-			GoUp()
-		end
-	end
+    riseWithAntiGravity(RISE_DISTANCE, RISE_DURATION)
 end)
