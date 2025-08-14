@@ -1,3 +1,4 @@
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -116,7 +117,9 @@ local function riseWithAntiGravity(dist, duration)
 
     local attachment = Instance.new("Attachment")
     attachment.Name = "RiseAttachment"
-    attachment.Parent = hrplocal vectorForce = Instance.new("VectorForce")
+    attachment.Parent = hrp
+
+    local vectorForce = Instance.new("VectorForce")
     vectorForce.Name = "RiseForce"
     vectorForce.Attachment0 = attachment
     vectorForce.RelativeTo = Enum.ActuatorRelativeTo.World
