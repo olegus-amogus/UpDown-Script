@@ -1,169 +1,191 @@
-
-
--- UpDown Script (Полная переработка)
--- Помести как LocalScript внутрь перетаскиваемого GUI (например Frame)
--- Поддерживает: мышь, тач, AnchorPoint, ограничения по границам родителя
--- Параметры:
---   LOCK_X = true  -> фиксировать X (движение только по Y)
---   LOCK_Y = true  -> фиксировать Y (движение только по X)
--- Если оба false — свободное перемещение по обеим осям.
-
-local gui = script.Parent
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local player = Players.LocalPlayer
 
--- Настройки (изменяй при необходимости)
-
-local LOCK_X = false
-local LOCK_Y = false
-local ROUNDOFF = true -- округлять пиксели при установке Position
-
--- Внутренние состояния
-
-local dragging = false
-local dragInput = nil
-local dragStartScreenPos = Vector2.new(0, 0) -- позиция курсора/тача при начале (экран)
-local startAbsGuiPos = Vector2.new(0, 0)     -- AbsolutePosition GUI при начале (экран)
-
--- Вспомогательные функции
-
--- Получить границы допустимой "AbsolutePosition" левого-верхнего угла GUI (в координатах экрана)
-
-local function getAbsBounds()
-    local parent = gui.Parent
-    if not parent then
-        return 0, 0, 0, 0
+local RISE_DISTANCE = 30
+local RISE_DURATION = 1.5
+local EASE_FUNC = function(t)
+    if t < 0.5 then
+        return 4 * t * t * t
+    else
+        local f = (2 * t - 2)
+        return 0.5 * f * f * f + 1
     end
-    local pPos = parent.AbsolutePosition
-    local pSize = parent.AbsoluteSize
-    local gSize = gui.AbsoluteSize
-
-    local minX = pPos.X
-    local maxX = pPos.X + math.max(0, pSize.X - gSize.X)
-    local minY = pPos.Y
-    local maxY = pPos.Y + math.max(0, pSize.Y - gSize.Y)
-
-    return minX, maxX, minY, maxY
 end
 
--- Перевод абсолютной позиции (экран) в локальную позицию относительно родителя (в пикселях)
+-- GUI
 
-local function absToLocal(absPos)
-    local parent = gui.Parent
-    local pPos = parent.AbsolutePosition
-    return Vector2.new(absPos.X - pPos.X, absPos.Y - pPos.Y)
-end
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "RiseGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = player:WaitForChild("PlayerGui")
 
--- Установить gui.Position корректно, учитывая AnchorPoint и желаемый абсолютный левый-верх (absPos)
+local frame = Instance.new("Frame")
+frame.Name = "MainFrame"
+frame.Size = UDim2.new(0, 220, 0, 80)
+frame.Position = UDim2.new(0.5, -110, 0.85, 0)
+frame.AnchorPoint = Vector2.new(0.5, 0.5)
+frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+frame.BackgroundTransparency = 0.05
+frame.Parent = screenGui
 
-local function setGuiPositionByAbsoluteTopLeft(absPos)
-    local parent = gui.Parent
-    if not parent then return end
-    local localPos = absToLocal(absPos) -- позиция левого-верх относительно родителя (в пикселях)
-    local anchor = gui.AnchorPoint
-    local gSize = gui.AbsoluteSize
-    local offsetX = localPos.X + anchor.X * gSize.X
-    local offsetY = localPos.Y + anchor.Y * gSize.Y
-    if ROUNDOFF then
-        offsetX = math.floor(offsetX + 0.5)
-        offsetY = math.floor(offsetY + 0.5)
+local uiCorner = Instance.new("UICorner")
+uiCorner.CornerRadius = UDim.new(0, 8)
+uiCorner.Parent = frame
+
+local button = Instance.new("TextButton")
+button.Name = "RiseButton"
+button.Size = UDim2.new(0, 200, 0, 48)
+button.Position = UDim2.new(0.5, 0, 0.5, -12)
+button.AnchorPoint = Vector2.new(0.5, 0.5)
+button.BackgroundColor3 = Color3.fromRGB(70, 130, 240)
+button.TextColor3 = Color3.new(1,1,1)
+button.Font = Enum.Font.SourceSansBold
+button.TextSize = 20
+button.Text = "Rise Up"
+button.Parent = frame
+
+local btnCorner = Instance.new("UICorner")
+btnCorner.CornerRadius = UDim.new(0, 6)
+btnCorner.Parent = button
+
+-- Перетаскивание за frame (с ограничением в пределах экрана)
+
+do
+    local dragging = false
+    local dragStart = Vector2.new()
+    local startPos = UDim2.new()
+    local lastInput
+
+    local function clampPosition(pos, size)
+        local absSize = frame.Parent.AbsoluteSize
+        local x = math.clamp(pos.X.Offset, 0, absSize.X - size.X.Offset)
+        local y = math.clamp(pos.Y.Offset, 0, absSize.Y - size.Y.Offset)
+        -- сохраняем Scale часть (обычно 0.5) и пересчитываем Offset
+        return UDim2.new(pos.X.Scale, x, pos.Y.Scale, y)
     end
-    gui.Position = UDim2.new(0, offsetX, 0, offsetY)
-end
 
--- Ограничить абсолю��ную позицию по границам родителя
-
-local function clampAbsPos(absPos)
-    local minX, maxX, minY, maxY = getAbsBounds()
-    return Vector2.new(
-        math.clamp(absPos.X, minX, maxX),
-        math.clamp(absPos.Y, minY, maxY)
-    )
-end
-
--- Обработка начала ввода на GUI
-
-gui.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        dragInput = input
-        dragStartScreenPos = Vector2.new(input.Position.X, input.Position.Y)
-        startAbsGuiPos = Vector2.new(gui.AbsolutePosition.X, gui.AbsolutePosition.Y)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            -- захватываем фокус чтобы InputChanged продолжал приходить
-            pcall(function() input:CaptureFocus() end)
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+            lastInput = input
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
         end
-    end
-end)
+    end)
 
--- Обработка завершения ввода
-
-gui.InputEnded:Connect(function(input)
-    if dragging and dragInput and input == dragInput then
-        dragging = false
-        dragInput = nil
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            pcall(function() input:ReleaseFocus() end)
+    frame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            lastInput = input
         end
-    end
-end)
+    end)
 
--- Единая обработка изменения ввода (мышь/тач)
+    RunService.RenderStepped:Connect(function()
+        if dragging and lastInput then
+            local delta = lastInput.Position - dragStart
+            local parentSize = frame.Parent.AbsoluteSize
+            local newXOffset = startPos.X.Offset + delta.X
+            local newYOffset = startPos.Y.Offset + delta.Y
+            -- вычисляем позицию и ограничиваем
+            local candidate = UDim2.new(startPos.X.Scale, newXOffset, startPos.Y.Scale, newYOffset)
+            frame.Position = clampPosition(candidate, frame.Size)
+        end
+    end)
+end
 
-local function handleInputChanged(input)
-    if not dragging then return end
-    if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then
+-- Подъём через VectorForce/Attachment
+
+local isRising = false
+local function riseWithAntiGravity(dist, duration)
+    if isRising then return end
+    local character = player.Character or player.CharacterAdded:Wait()
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character:FindFirstChildWhichIsA("Humanoid")
+    if not hrp or not humanoid then
+        warn("Нет Humanoid или HumanoidRootPart")
         return
     end
 
-    local currentPos = Vector2.new(input.Position.X, input.Position.Y)
-    local delta = currentPos - dragStartScreenPos
-    local newAbs = startAbsGuiPos + delta
+    isRising = true
 
-    -- Если заблокирована ось, фиксируем координату от startAbsGuiPos
-    if LOCK_X then
-        newAbs = Vector2.new(startAbsGuiPos.X, newAbs.Y)
+    local attachment = Instance.new("Attachment")
+    attachment.Name = "RiseAttachment"
+    attachment.Parent = hrplocal vectorForce = Instance.new("VectorForce")
+    vectorForce.Name = "RiseForce"
+    vectorForce.Attachment0 = attachment
+    vectorForce.RelativeTo = Enum.ActuatorRelativeTo.World
+    vectorForce.ApplyAtCenterOfMass = true
+    vectorForce.Parent = hrp
+
+    local mass = 0
+    for _, part in ipairs(character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            mass = mass + part:GetMass()
+        end
     end
-    if LOCK_Y then
-        newAbs = Vector2.new(newAbs.X, startAbsGuiPos.Y)
-    end
+    if mass <= 0 then mass = 1 end
 
-    -- Ограничиваем по границам родителя
-    newAbs = clampAbsPos(newAbs)
+    local gravity = workspace.Gravity
+    local startY = hrp.Position.Y
+    local elapsed = 0
+    local prevY = hrp.Position.Y
 
-    setGuiPositionByAbsoluteTopLeft(newAbs)
+    local conn
+    conn = RunService.RenderStepped:Connect(function(dt)
+        if not hrp or not hrp.Parent then
+            conn:Disconnect()
+            if vectorForce and vectorForce.Parent then vectorForce:Destroy() end
+            if attachment and attachment.Parent then attachment:Destroy() end
+            isRising = false
+            return
+        end
+
+        elapsed = math.min(elapsed + dt, duration)
+        local t = elapsed / duration
+        local alpha = EASE_FUNC(t)
+
+        local alpha_prev = EASE_FUNC(math.max(0, (elapsed - dt) / duration))
+        local v_target = (alpha - alpha_prev) * dist / math.max(dt, 1e-6)
+
+        local currentV = (hrp.Position.Y - prevY) / math.max(dt, 1e-6)
+
+        local kP = 40
+        local accel_req = kP * (v_target - currentV)
+
+        local forceY = mass * (accel_req + gravity)
+
+        vectorForce.Force = Vector3.new(0, forceY, 0)
+
+        prevY = hrp.Position.Y
+
+        if elapsed >= duration then
+            conn:Disconnect()
+            -- плавное уменьшение силы
+            local fadeTime = 0.15
+            local fadeElapsed = 0
+            local initialForceY = forceY
+            local fadeConn
+            fadeConn = RunService.RenderStepped:Connect(function(dt2)
+                fadeElapsed = math.min(fadeElapsed + dt2, fadeTime)
+                local f = 1 - (fadeElapsed / fadeTime)
+                vectorForce.Force = Vector3.new(0, initialForceY * f, 0)
+                if fadeElapsed >= fadeTime then
+                    fadeConn:Disconnect()
+                    if vectorForce and vectorForce.Parent then vectorForce:Destroy() end
+                    if attachment and attachment.Parent then attachment:Destroy() end
+                    isRising = false
+                end
+            end)
+        end
+    end)
 end
 
--- Подключаем оба источника InputChanged: GUI и UserInputService
-
-gui.InputChanged:Connect(handleInputChanged)
-UserInputService.InputChanged:Connect(function(input)
-    -- важно реагировать только если это тот же input, который мы захватили
-    if dragging and dragInput and input == dragInput then
-        handleInputChanged(input)
-    end
+button.MouseButton1Click:Connect(function()
+    riseWithAntiGravity(RISE_DISTANCE, RISE_DURATION)
 end)
-
--- Если размеры/позиции родителя или самого GUI изменились, корректируем позицию чтобы остаться в пределах
-
-local function clampPositionToParent()
-    local minX, maxX, minY, maxY = getAbsBounds()
-    local absPos = gui.AbsolutePosition
-    local clamped = Vector2.new(
-        math.clamp(absPos.X, minX, maxX),
-        math.clamp(absPos.Y, minY, maxY)
-    )
-    if clamped ~= absPos then
-        setGuiPositionByAbsoluteTopLeft(clamped)
-    end
-end
-
-if gui.Parent then
-    gui.Parent:GetPropertyChangedSignal("AbsoluteSize"):Connect(clampPositionToParent)
-    gui.Parent:GetPropertyChangedSignal("AbsolutePosition"):Connect(clampPositionToParent)
-end
-gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(clampPositionToParent)
-gui:GetPropertyChangedSignal("AnchorPoint"):Connect(clampPositionToParent)
-gui:GetPropertyChangedSignal("AbsolutePosition"):Connect(clampPositionToParent)
-
--- Доп: если хочешь движение только по Y — включи LOCK_X = true выше или вызови этот скрипт с настройкой.
--- Конец скрипта
