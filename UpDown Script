@@ -59,13 +59,10 @@ do
     local startPos = UDim2.new()
     local lastInput
 
-    local function clampPosition(pos, size)
-        local absSize = frame.Parent.AbsoluteSize
-        local x = math.clamp(pos.X.Offset, 0, absSize.X - size.X.Offset)
-        local y = math.clamp(pos.Y.Offset, 0, absSize.Y - size.Y.Offset)
-        -- сохраняем Scale часть (обычно 0.5) и пересчитываем Offset
-        return UDim2.new(pos.X.Scale, x, pos.Y.Scale, y)
-    end
+    
+local function clampPosition(pos, size)
+    return UDim2.new(pos.X.Scale, pos.X.Offset, pos.Y.Scale, pos.Y.Offset)
+end
 
     frame.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -184,6 +181,7 @@ local function riseWithAntiGravity(dist, duration)
                     if attachment and attachment.Parent then attachment:Destroy() end
                     isRising = false
                 end
+
             end)
         end
     end)
